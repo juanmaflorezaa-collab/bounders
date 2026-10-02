@@ -34,7 +34,21 @@
   #mic.listening { background:#c0392b; color:#fff; border-color:#c0392b; }
   #notice { max-width:640px; margin:8px auto 0; padding:0 16px; font-size:0.78rem; color:var(--muted); text-align:center; }
   #voiceToggle { font-size:0.78rem; color:var(--muted); text-align:center; max-width:640px; margin:4px auto 0; }
+
+  #authScreen { flex:1; display:flex; align-items:center; justify-content:center; padding:20px; }
+  #authBox { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:28px; width:100%; max-width:340px; }
+  #authBox h2 { margin:0 0 4px; font-size:1.1rem; }
+  #authBox p.sub { margin:0 0 18px; font-size:0.82rem; color:var(--muted); }
+  #authBox input { width:100%; margin-bottom:10px; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:0.9rem; }
+  #authBox button { width:100%; padding:10px; border-radius:10px; border:none; background:var(--accent); color:var(--bg); font-weight:600; cursor:pointer; margin-top:4px; }
+  #authBox .switch { text-align:center; font-size:0.82rem; color:var(--muted); margin-top:14px; }
+  #authBox .switch a { color:var(--text); cursor:pointer; text-decoration:underline; }
+  #authError { color:#c0392b; font-size:0.8rem; margin-top:8px; min-height:1em; }
+  #topbar { display:flex; justify-content:flex-end; padding:8px 16px; max-width:640px; margin:0 auto; width:100%; }
+  #topbar button { background:none; border:none; color:var(--muted); font-size:0.78rem; cursor:pointer; text-decoration:underline; }
+  .hidden { display:none !important; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 <header>
@@ -42,15 +56,40 @@
   <p>Versión independiente — voz, texto y memoria</p>
 </header>
 
-<div id="chat"></div>
-<div id="notice"></div>
-<div id="voiceToggle"><label><input type="checkbox" id="speakToggle" checked /> Leer respuestas en voz alta</label></div>
+<div id="topbar" class="hidden"><button id="logoutBtn">Cerrar sesión</button></div>
 
-<form id="composer">
+<div id="authScreen">
+  <div id="authBox">
+    <h2 id="authTitle">Inicia sesión</h2>
+    <p class="sub">Tu memoria se guarda ligada a tu cuenta.</p>
+    <input id="authEmail" type="email" placeholder="Email" autocomplete="email" />
+    <input id="authPassword" type="password" placeholder="Contraseña (mín. 6 caracteres)" autocomplete="current-password" />
+    <button id="authSubmit">Entrar</button>
+    <div id="authError"></div>
+    <p class="switch">¿No tienes cuenta? <a id="authSwitch">Regístrate</a></p>
+  </div>
+</div>
+
+<div id="chat" class="hidden"></div>
+<div id="notice"></div>
+<div id="voiceToggle" class="hidden"><label><input type="checkbox" id="speakToggle" checked /> Leer respuestas en voz alta</label></div>
+
+<form id="composer" class="hidden">
   <button id="mic" type="button" title="Hablar">🎤</button>
   <input id="input" type="text" placeholder="Escribe tu mensaje..." autocomplete="off" />
   <button id="send" type="submit">Enviar</button>
 </form>
+
+<script>
+  // --- Configuración de Supabase ---
+  // Rellena estos dos valores con los de tu proyecto de Supabase:
+  // Dashboard → Settings → API → "Project URL" y "anon public" key.
+  // La clave "anon" es pública y segura de exponer aquí (no es la service_role).
+  const SUPABASE_URL = 'https://lpslntbqfuqlsrwytrmv.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxwc2xudGJxZnVxbHNyd3l0cm12Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzMjg2MTMsImV4cCI6MjEwNTkwNDYxM30.UWKrMRtNEhhdA_LuqxEyWoWfsqpRRsYSXCWzMJEzAEs';
+
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+</script>
 
 <script>
   const chatEl = document.getElementById('chat');
@@ -60,27 +99,69 @@
   const notice = document.getElementById('notice');
   const micBtn = document.getElementById('mic');
   const speakToggle = document.getElementById('speakToggle');
+  const voiceToggleWrap = document.getElementById('voiceToggle');
+  const authScreen = document.getElementById('authScreen');
+  const authTitle = document.getElementById('authTitle');
+  const authEmail = document.getElementById('authEmail');
+  const authPassword = document.getElementById('authPassword');
+  const authSubmit = document.getElementById('authSubmit');
+  const authError = document.getElementById('authError');
+  const authSwitch = document.getElementById('authSwitch');
+  const topbar = document.getElementById('topbar');
+  const logoutBtn = document.getElementById('logoutBtn');
 
-  const STORAGE_KEY = 'tu-ia-personal-memoria';
   let history = [];
   let facts = [];
+  let session = null;
+  let isSignUp = false;
 
-  function loadMemory() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        history = parsed.history || [];
-        facts = parsed.facts || [];
-      }
-    } catch (e) {}
-  }
+  authSwitch.addEventListener('click', () => {
+    isSignUp = !isSignUp;
+    authTitle.textContent = isSignUp ? 'Crea tu cuenta' : 'Inicia sesión';
+    authSubmit.textContent = isSignUp ? 'Registrarme' : 'Entrar';
+    authSwitch.parentElement.firstChild.textContent = isSignUp ? '¿Ya tienes cuenta? ' : '¿No tienes cuenta? ';
+    authSwitch.textContent = isSignUp ? 'Inicia sesión' : 'Regístrate';
+    authError.textContent = '';
+  });
 
-  function saveMemory() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ history: history.slice(-30), facts }));
-    } catch (e) {}
-  }
+  authSubmit.addEventListener('click', async () => {
+    authError.textContent = '';
+    const email = authEmail.value.trim();
+    const password = authPassword.value;
+    if (!email || password.length < 6) {
+      authError.textContent = 'Introduce un email válido y una contraseña de al menos 6 caracteres.';
+      return;
+    }
+    authSubmit.disabled = true;
+    const { data, error } = isSignUp
+      ? await supabase.auth.signUp({ email, password })
+      : await supabase.auth.signInWithPassword({ email, password });
+    authSubmit.disabled = false;
+
+    if (error) {
+      authError.textContent = error.message;
+      return;
+    }
+    if (isSignUp && !data.session) {
+      authError.textContent = 'Cuenta creada. Revisa tu email para confirmar antes de entrar.';
+      return;
+    }
+    session = data.session;
+    await onLoggedIn();
+  });
+
+  logoutBtn.addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    session = null;
+    chatEl.innerHTML = '';
+    history = [];
+    facts = [];
+    chatEl.classList.add('hidden');
+    form.classList.add('hidden');
+    voiceToggleWrap.classList.add('hidden');
+    topbar.classList.add('hidden');
+    authScreen.classList.remove('hidden');
+  });
 
   function addMessage(role, text) {
     const div = document.createElement('div');
@@ -98,6 +179,31 @@
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'es-ES';
       window.speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+
+  function authHeaders() {
+    return { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token };
+  }
+
+  async function loadMemory() {
+    try {
+      const resp = await fetch('/api/memory', { headers: authHeaders() });
+      const data = await resp.json();
+      if (resp.ok) {
+        facts = data.facts || [];
+        history = data.history || [];
+      }
+    } catch (e) {}
+  }
+
+  async function saveMemory() {
+    try {
+      await fetch('/api/memory', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ facts, history: history.slice(-30) }),
+      });
     } catch (e) {}
   }
 
@@ -149,7 +255,7 @@
     try {
       const resp = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ messages: history, facts }),
       });
       const data = await resp.json();
@@ -159,19 +265,19 @@
       typingEl.className = 'msg ai';
       history.push({ role: 'assistant', content: data.text });
       speak(data.text);
-      saveMemory();
+      await saveMemory();
 
       if (history.length % 4 === 0) {
         try {
           const fResp = await fetch('/api/extract-facts', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders(),
             body: JSON.stringify({ messages: history }),
           });
           const fData = await fResp.json();
           if (Array.isArray(fData.facts) && fData.facts.length) {
             facts = fData.facts;
-            saveMemory();
+            await saveMemory();
           }
         } catch (e) {}
       }
@@ -184,13 +290,29 @@
     }
   });
 
-  loadMemory();
-  if (history.length) {
-    history.forEach((m) => addMessage(m.role === 'user' ? 'user' : 'ai', m.content));
-    addMessage('ai', 'Sigo aquí, ¿en qué seguimos?');
-  } else {
-    addMessage('ai', '¡Hola! Soy tu IA personal. Cuéntame algo sobre ti para empezar a personalizar nuestras conversaciones.');
+  async function onLoggedIn() {
+    authScreen.classList.add('hidden');
+    chatEl.classList.remove('hidden');
+    form.classList.remove('hidden');
+    voiceToggleWrap.classList.remove('hidden');
+    topbar.classList.remove('hidden');
+
+    await loadMemory();
+    if (history.length) {
+      history.forEach((m) => addMessage(m.role === 'user' ? 'user' : 'ai', m.content));
+      addMessage('ai', 'Sigo aquí, ¿en qué seguimos?');
+    } else {
+      addMessage('ai', '¡Hola! Soy tu IA personal. Cuéntame algo sobre ti para empezar a personalizar nuestras conversaciones.');
+    }
   }
+
+  // Recupera sesión existente al recargar la página
+  supabase.auth.getSession().then(async ({ data }) => {
+    if (data.session) {
+      session = data.session;
+      await onLoggedIn();
+    }
+  });
 </script>
 </body>
 </html>

@@ -1,10 +1,29 @@
 // api/extract-facts.js
 // Analiza la conversación y devuelve una lista breve de datos personales
 // duraderos (gustos, rutinas, contexto) para personalizar futuras respuestas.
+// Requiere un usuario autenticado con Supabase (header Authorization).
+
+import { createClient } from '@supabase/supabase-js';
+
+async function requireUser(req) {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  if (!token) return null;
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) return null;
+  return data.user;
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Método no permitido' });
+    return;
+  }
+
+  const user = await requireUser(req);
+  if (!user) {
+    res.status(401).json({ error: 'No autenticado' });
     return;
   }
 
