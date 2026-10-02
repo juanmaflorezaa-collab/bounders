@@ -44,7 +44,7 @@ de un archivo `.env` que crees a partir de `.env.example`.
 > incluso sin HTTPS; en producción (Vercel) siempre es HTTPS, así que
 > no tendrás problema.
 
-## Siguientes pasos para convertirlo en producto
+## Siguientes pasos para convertirlo en producto  
 
 - Sustituir `localStorage` por una base de datos real (p. ej.
   Supabase, Postgres) si quieres memoria por usuario con login.
