@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tu IA personal</title>
+<style>
+  :root {
+    --bg: #f5f4f1; --surface: #fff; --text: #1a1a1a; --muted: #6b6b6b;
+    --accent: #2b2b2b; --bubble-user: #2b2b2b; --bubble-user-text: #fff;
+    --bubble-ai: #eeece8; --border: #e2e0da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#17171a; --surface:#1f1f23; --text:#f0efec; --muted:#9a9a9a;
+      --accent:#f0efec; --bubble-user:#f0efec; --bubble-user-text:#17171a;
+      --bubble-ai:#2a2a2e; --border:#303035; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; height:100vh; display:flex; flex-direction:column;
+    background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  header { padding:16px 20px; border-bottom:1px solid var(--border); background:var(--surface); }
+  header h1 { margin:0; font-size:1.1rem; }
+  header p { margin:2px 0 0; font-size:0.8rem; color:var(--muted); }
+  #chat { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; max-width:640px; margin:0 auto; width:100%; }
+  .msg { max-width:80%; padding:10px 14px; border-radius:16px; line-height:1.4; font-size:0.95rem; white-space:pre-wrap; word-wrap:break-word; }
+  .msg.user { align-self:flex-end; background:var(--bubble-user); color:var(--bubble-user-text); border-bottom-right-radius:4px; }
+  .msg.ai { align-self:flex-start; background:var(--bubble-ai); color:var(--text); border-bottom-left-radius:4px; }
+  .msg.typing { align-self:flex-start; background:var(--bubble-ai); color:var(--muted); font-style:italic; }
+  form#composer { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); background:var(--surface); max-width:640px; margin:0 auto; width:100%; }
+  #input { flex:1; border:1px solid var(--border); border-radius:20px; padding:10px 16px; font-size:0.95rem; background:var(--bg); color:var(--text); outline:none; }
+  #send { border:none; background:var(--accent); color:var(--bg); border-radius:20px; padding:0 18px; font-weight:600; cursor:pointer; }
+  #send:disabled { opacity:0.5; cursor:default; }
+  #mic { border:1px solid var(--border); background:var(--bg); color:var(--text); border-radius:50%; width:40px; height:40px; font-size:1.1rem; cursor:pointer; flex-shrink:0; }
+  #mic.listening { background:#c0392b; color:#fff; border-color:#c0392b; }
+  #notice { max-width:640px; margin:8px auto 0; padding:0 16px; font-size:0.78rem; color:var(--muted); text-align:center; }
+  #voiceToggle { font-size:0.78rem; color:var(--muted); text-align:center; max-width:640px; margin:4px auto 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tu IA personal</h1>
+  <p>Versión independiente — voz, texto y memoria</p>
+</header>
+
+<div id="chat"></div>
+<div id="notice"></div>
+<div id="voiceToggle"><label><input type="checkbox" id="speakToggle" checked /> Leer respuestas en voz alta</label></div>
+
+<form id="composer">
+  <button id="mic" type="button" title="Hablar">🎤</button>
+  <input id="input" type="text" placeholder="Escribe tu mensaje..." autocomplete="off" />
+  <button id="send" type="submit">Enviar</button>
+</form>
+
+<script>
+  const chatEl = document.getElementById('chat');
+  const form = document.getElementById('composer');
+  const input = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+  const notice = document.getElementById('notice');
+  const micBtn = document.getElementById('mic');
+  const speakToggle = document.getElementById('speakToggle');
+
+  const STORAGE_KEY = 'tu-ia-personal-memoria';
+  let history = [];
+  let facts = [];
+
+  function loadMemory() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        history = parsed.history || [];
+        facts = parsed.facts || [];
+      }
+    } catch (e) {}
+  }
+
+  function saveMemory() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ history: history.slice(-30), facts }));
+    } catch (e) {}
+  }
+
+  function addMessage(role, text) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    div.textContent = text;
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return div;
+  }
+
+  function speak(text) {
+    if (!speakToggle.checked || !('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'es-ES';
+      window.speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+
+  // --- Reconocimiento de voz ---
+  let recognition = null;
+  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRecognitionCtor) {
+    recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'es-ES';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (e) => {
+      input.value = e.results[0][0].transcript;
+      form.requestSubmit();
+    };
+    recognition.onend = () => micBtn.classList.remove('listening');
+    recognition.onerror = (e) => {
+      micBtn.classList.remove('listening');
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        notice.textContent = 'Permiso de micrófono denegado. Revisa los ajustes del sitio en tu navegador.';
+      } else if (e.error === 'no-speech') {
+        notice.textContent = 'No se detectó voz, inténtalo de nuevo.';
+      } else {
+        notice.textContent = 'Error de micrófono (' + e.error + ').';
+      }
+    };
+  } else {
+    micBtn.style.display = 'none';
+  }
+  micBtn.addEventListener('click', () => {
+    if (!recognition) return;
+    micBtn.classList.add('listening');
+    try { recognition.start(); } catch (e) { micBtn.classList.remove('listening'); }
+  });
+
+  // --- Envío de mensajes ---
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+
+    addMessage('user', text);
+    history.push({ role: 'user', content: text });
+    input.value = '';
+    sendBtn.disabled = true;
+
+    const typingEl = addMessage('typing', 'Pensando...');
+
+    try {
+      const resp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history, facts }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Error desconocido');
+
+      typingEl.textContent = data.text;
+      typingEl.className = 'msg ai';
+      history.push({ role: 'assistant', content: data.text });
+      speak(data.text);
+      saveMemory();
+
+      if (history.length % 4 === 0) {
+        try {
+          const fResp = await fetch('/api/extract-facts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: history }),
+          });
+          const fData = await fResp.json();
+          if (Array.isArray(fData.facts) && fData.facts.length) {
+            facts = fData.facts;
+            saveMemory();
+          }
+        } catch (e) {}
+      }
+    } catch (err) {
+      typingEl.remove();
+      addMessage('ai', 'Ha ocurrido un error al responder: ' + err.message);
+    } finally {
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  });
+
+  loadMemory();
+  if (history.length) {
+    history.forEach((m) => addMessage(m.role === 'user' ? 'user' : 'ai', m.content));
+    addMessage('ai', 'Sigo aquí, ¿en qué seguimos?');
+  } else {
+    addMessage('ai', '¡Hola! Soy tu IA personal. Cuéntame algo sobre ti para empezar a personalizar nuestras conversaciones.');
+  }
+</script>
+</body>
+</html>

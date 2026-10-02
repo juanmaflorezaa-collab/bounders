@@ -1,0 +1,9 @@
+{
+  "name": "tu-ia-personal",
+  "version": "1.0.0",
+  "description": "Prototipo independiente de asistente de IA personal con voz y memoria",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev"
+  }
+}
