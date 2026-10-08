@@ -88,7 +88,8 @@
   const SUPABASE_URL = 'https://lpslntbqfuqlsrwytrmv.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxwc2xudGJxZnVxbHNyd3l0cm12Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzMjg2MTMsImV4cCI6MjEwNTkwNDYxM30.UWKrMRtNEhhdA_LuqxEyWoWfsqpRRsYSXCWzMJEzAEs';
 
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 </script>
 
 <script>
@@ -134,8 +135,8 @@
     }
     authSubmit.disabled = true;
     const { data, error } = isSignUp
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
+      ? await supabaseClient.auth.signUp({ email, password })
+      : await supabaseClient.auth.signInWithPassword({ email, password });
     authSubmit.disabled = false;
 
     if (error) {
@@ -151,7 +152,7 @@
   });
 
   logoutBtn.addEventListener('click', async () => {
-    await supabase.auth.signOut();
+    await supabaseClient.auth.signOut();
     session = null;
     chatEl.innerHTML = '';
     history = [];
@@ -307,7 +308,7 @@
   }
 
   // Recupera sesión existente al recargar la página
-  supabase.auth.getSession().then(async ({ data }) => {
+  supabaseClient.auth.getSession().then(async ({ data }) => {
     if (data.session) {
       session = data.session;
       await onLoggedIn();
